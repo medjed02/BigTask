@@ -6,6 +6,21 @@ import os
 import requests
 
 
+def select_parameters(json_response):
+    toponym = json_response["response"]["GeoObjectCollection"][
+        "featureMember"][0]["GeoObject"]
+    toponym_coordinates = tuple(map(float, toponym["Point"]["pos"].split()))
+
+    toponym = toponym['boundedBy']['Envelope']
+    lower_corn = tuple(map(float, toponym["lowerCorner"].split()))
+    upper_corn = tuple(map(float, toponym["upperCorner"].split()))
+    delta_long = max(abs(toponym_coordinates[0] - lower_corn[0]),
+                     abs(toponym_coordinates[0] - upper_corn[0]))
+    delta_latt = max(abs(toponym_coordinates[1] - lower_corn[1]),
+                     abs(toponym_coordinates[1] - upper_corn[1]))
+    return [str(delta_long), str(delta_latt)]
+
+
 class BigTask(QWidget):
     def __init__(self):
         super().__init__()
@@ -68,7 +83,7 @@ class BigTask(QWidget):
         self.postcode.clicked.connect(self.find_toponym)
 
         # Перемещать центр карты на W, S, D, A вверх, вниз, вправо и влево соответственно
-        self.start_longitube = 43.820637
+        self.start_longitude = 43.820637
         self.start_lattitude = 56.364506
         self.max_longitube = 180
         self.min_longitube = -180
@@ -82,9 +97,10 @@ class BigTask(QWidget):
 
         # Масштаб меняется на PgUp/PgDown
         self.delta = 0.005
+        self.dop_delta = ["0.005", "0.005"]
 
         # Слой меняется на кнопку L
-        self.layer = "sat"
+        self.layer = "map"
 
         self.image = QLabel(self)
         self.image.move(0, 0)
@@ -102,11 +118,11 @@ class BigTask(QWidget):
     def make_image(self):
         global map_file
         map_params = {
-            "ll": ",".join([str(self.start_longitube), str(self.start_lattitude)]),
-            "spn": ",".join([str(self.delta), str(self.delta)]),
+            "ll": ",".join([str(self.start_longitude), str(self.start_lattitude)]),
+            "spn": ','.join(self.dop_delta),
             "l": self.layer}
         if self.point:
-            map_params["pt"] = f"{self.point_longitube},{self.point_lattitude},pm2rdl1"
+            map_params["pt"] = f"{self.point_longitude},{self.point_lattitude},pm2rdl1"
         map_api_server = "http://static-maps.yandex.ru/1.x/"
         response = requests.get(map_api_server, params=map_params)
         if self.layer == "map":
@@ -142,6 +158,7 @@ class BigTask(QWidget):
         if not response or found == '0':
             self.label.setText("Объект не найден")
         else:
+            self.dop_delta = select_parameters(json_response)
             dop = json_response['response']["GeoObjectCollection"]["featureMember"][0]["GeoObject"]
             full_address = dop["metaDataProperty"]["GeocoderMetaData"]["text"].split()
             if self.postcode.isChecked():
@@ -174,7 +191,7 @@ class BigTask(QWidget):
             self.right_border, self.up_border = [float(i) for i in toponym_corners["upperCorner"].split(" ")]
             self.left_border, self.down_border = [float(i) for i in toponym_corners["lowerCorner"].split(" ")]
             self.point = True
-            self.point_longitube, self.point_lattitude = self.start_longitude, self.start_lattitude
+            self.point_longitude, self.point_lattitude = self.start_longitude, self.start_lattitude
             if not self.sender().text() == 'Почтовый индекс':
                 self.make_image()
 
@@ -197,17 +214,21 @@ class BigTask(QWidget):
             if self.start_lattitude < self.min_lattitude + self.delta / 2:
                 self.start_lattitude = self.min_lattitude + self.delta / 2
         elif e.key() == Qt.Key_D or e.key() == 1042:
-            self.start_longitube += self.delta * 2
-            if self.start_longitube > self.max_longitube - self.delta:
-                self.start_longitube = self.max_longitube - self.delta
+            self.start_longitude += self.delta * 2
+            if self.start_longitude > self.max_longitube - self.delta:
+                self.start_longitude = self.max_longitube - self.delta
         elif e.key() == Qt.Key_A or e.key() == 1060:
-            self.start_longitube -= self.delta * 2
-            if self.start_longitube < self.min_longitube + self.delta:
-                self.start_longitube = self.min_longitube + self.delta
+            self.start_longitude -= self.delta * 2
+            if self.start_longitude < self.min_longitube + self.delta:
+                self.start_longitude = self.min_longitube + self.delta
         elif e.key() == Qt.Key_PageUp:
             self.delta = min(90, self.delta * 2)
+            self.dop_delta = (str(min(90, float(self.dop_delta[0]) * 2)),
+                              str(min(90, float(self.dop_delta[0]) * 2)))
         elif e.key() == Qt.Key_PageDown:
             self.delta = max(0.001, self.delta / 2)
+            self.dop_delta = (str(max(0.001, float(self.dop_delta[0]) / 2)),
+                              str(min(0.001, float(self.dop_delta[0]) / 2)))
         elif e.key() == Qt.Key_L or e.key() == 1044:
             layers = ["map", "sat", "sat,skl"]
             self.layer = layers[(layers.index(self.layer) + 1) % 3]
