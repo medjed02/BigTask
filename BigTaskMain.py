@@ -38,10 +38,10 @@ class BigTask(QWidget):
         # Перемещать центр карты на W, S, D, A вверх, вниз, вправо и влево соответственно
         self.start_longitube = 43.820637
         self.start_lattitude = 56.364506
-        self.max_longitube = 179.9936
-        self.min_longitube = -179.9936
-        self.max_lattitude = 85.0801
-        self.min_lattitude = -85.0801
+        self.max_longitube = 180
+        self.min_longitube = -180
+        self.max_lattitude = 90
+        self.min_lattitude = -90
         self.right_border = 43.824742
         self.up_border = 56.366784
         self.left_border = 43.816532
@@ -114,21 +114,21 @@ class BigTask(QWidget):
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_W or e.key() == 1062:
-            self.start_lattitude += self.up_border - self.down_border
-            if self.start_lattitude > self.max_lattitude:
-                self.start_lattitude = self.max_lattitude
+            self.start_lattitude += self.delta
+            if self.start_lattitude > self.max_lattitude - self.delta / 2:
+                self.start_lattitude = self.max_lattitude - self.delta / 2
         elif e.key() == Qt.Key_S or e.key() == 1067:
-            self.start_lattitude -= self.up_border - self.down_border
-            if self.start_lattitude < self.min_lattitude:
-                self.start_lattitude = self.min_lattitude
+            self.start_lattitude -= self.delta
+            if self.start_lattitude < self.min_lattitude + self.delta / 2:
+                self.start_lattitude = self.min_lattitude + self.delta / 2
         elif e.key() == Qt.Key_D or e.key() == 1042:
-            self.start_longitube += self.right_border - self.left_border
-            if self.start_longitube > self.max_longitube:
-                self.start_longitube = self.max_longitube
+            self.start_longitube += self.delta * 2
+            if self.start_longitube > self.max_longitube - self.delta:
+                self.start_longitube = self.max_longitube - self.delta
         elif e.key() == Qt.Key_A or e.key() == 1060:
-            self.start_longitube -= self.right_border - self.left_border
-            if self.start_longitube < self.min_longitube:
-                self.start_longitube = self.min_longitube
+            self.start_longitube -= self.delta * 2
+            if self.start_longitube < self.min_longitube + self.delta:
+                self.start_longitube = self.min_longitube + self.delta
         elif e.key() == Qt.Key_PageUp:
             self.delta = min(90, self.delta * 2)
         elif e.key() == Qt.Key_PageDown:
@@ -136,7 +136,6 @@ class BigTask(QWidget):
         elif e.key() == Qt.Key_L or e.key() == 1044:
             layers = ["map", "sat", "sat,skl"]
             self.layer = layers[(layers.index(self.layer) + 1) % 3]
-
         self.make_image()
 
 
