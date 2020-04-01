@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QCheckBox
+from PyQt5.QtGui import QPixmap, QFont
 from PyQt5.QtCore import Qt
 import sys
 import os
@@ -12,7 +12,7 @@ class BigTask(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setGeometry(300, 50, 1200, 950)
+        self.setGeometry(300, 50, 1600, 950)
 
         self.toponym_text = QLineEdit(self)
         self.toponym_text.resize(500, 30)
@@ -30,10 +30,42 @@ class BigTask(QWidget):
         self.btn2.clicked.connect(self.find_toponym)
         self.btn2.setDisabled(True)
 
+        self.btn3 = QPushButton('Сброс поискового результата', self)
+        self.btn3.resize(200, 40)
+        self.btn3.move(1200, 905)
+        self.btn3.clicked.connect(self.reset_result)
+
         self.label = QLabel(self)
         self.label.setText("")
         self.label.resize(110, 30)
         self.label.move(980, 910)
+
+        self.statham = QLabel(self)
+        self.statham.setText("")
+        self.statham.resize(1200, 35)
+        self.statham.move(50, 10)
+
+        self.sorry = QLabel(self)
+        self.sorry.setText("")
+        self.sorry.resize(300, 320)
+        self.sorry.move(1250, 300)
+        pixmap = QPixmap('shrek.jpg')
+        self.sorry.setPixmap(pixmap)
+        self.sorry.hide()
+
+        self.sorry_text = QLabel(self)
+        self.sorry_text.setText("")
+        self.sorry_text.resize(300, 30)
+        self.sorry_text.move(1250, 250)
+
+        self.address = QLabel(self)
+        self.address.setText("")
+        self.address.resize(300, 40)
+        self.address.move(1250, 50)
+
+        self.postcode = QCheckBox('Почтовый индекс', self)
+        self.postcode.move(1250, 200)
+        self.postcode.clicked.connect(self.find_toponym)
 
         # Перемещать центр карты на W, S, D, A вверх, вниз, вправо и влево соответственно
         self.start_longitube = 43.820637
@@ -87,7 +119,17 @@ class BigTask(QWidget):
         self.image.setPixmap(self.pixmap.scaled(1200, 900))
 
     def find_toponym(self):
+        self.sorry_text.setText('')
+        self.sorry.hide()
         toponym_to_find = self.toponym_text.text()
+        if self.sender().text() == 'Почтовый индекс' and not toponym_to_find:
+            return
+        if not toponym_to_find:
+            self.statham.setFont(QFont("Times", 20, QFont.Bold))
+            self.statham.setText('Я ОТКАЗЫВАЮСЬ работать, пока вы не введете адрес')
+            self.pixmap = QPixmap('стэтхэм.jpg')
+            self.image.setPixmap(self.pixmap.scaled(1100, 790))
+            return
         geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
         geocoder_params = {
             "apikey": "40d1649f-0493-4b70-98ba-98533de7710b",
@@ -100,6 +142,29 @@ class BigTask(QWidget):
         if not response or found == '0':
             self.label.setText("Объект не найден")
         else:
+            dop = json_response['response']["GeoObjectCollection"]["featureMember"][0]["GeoObject"]
+            full_address = dop["metaDataProperty"]["GeocoderMetaData"]["text"].split()
+            if self.postcode.isChecked():
+                try:
+                    full_address.append(str(dop['metaDataProperty'][
+                        'GeocoderMetaData']['AddressDetails']['Country']['AdministrativeArea'][
+                                                'SubAdministrativeArea']['Locality']['Thoroughfare'][
+                                                'Premise']['PostalCode']['PostalCodeNumber']))
+                except:
+                    self.sorry_text.setText('К сожалению, почтовый индекс не найден')
+                    self.sorry.show()
+            out = ''
+            count = 0
+            for part in full_address:
+                if count + len(part) <= 47:
+                    out += part + ' '
+                    count += len(part)
+                else:
+                    out += '\n' + part + ' '
+                    count = 0
+            self.address.setText(out)
+
+
             self.label.setText("")
             toponym = json_response["response"]["GeoObjectCollection"][
                 "featureMember"][0]["GeoObject"]
@@ -110,7 +175,17 @@ class BigTask(QWidget):
             self.left_border, self.down_border = [float(i) for i in toponym_corners["lowerCorner"].split(" ")]
             self.point = True
             self.point_longitube, self.point_lattitude = self.start_longitude, self.start_lattitude
-            self.make_image()
+            if not self.sender().text() == 'Почтовый индекс':
+                self.make_image()
+
+    def reset_result(self):
+        self.point = False
+        self.make_image()
+        self.toponym_text.clear()
+        self.address.setText('')
+        self.sorry_text.setText('')
+        self.sorry.hide()
+
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_W or e.key() == 1062:
