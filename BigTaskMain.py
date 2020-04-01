@@ -4,6 +4,7 @@ from PyQt5.QtCore import Qt
 import sys
 import os
 import requests
+import math
 
 
 def select_parameters(json_response):
@@ -19,6 +20,23 @@ def select_parameters(json_response):
     delta_latt = max(abs(toponym_coordinates[1] - lower_corn[1]),
                      abs(toponym_coordinates[1] - upper_corn[1]))
     return [str(delta_long), str(delta_latt)]
+
+
+def lonlat_distance(a, b):
+    degree_to_meters_factor = 111 * 1000
+    a_lon, a_lat = a
+    b_lon, b_lat = b
+
+    radians_lattitude = math.radians((a_lat + b_lat) / 2.)
+    lat_lon_factor = math.cos(radians_lattitude)
+
+    dx = abs(a_lon - b_lon) * degree_to_meters_factor * lat_lon_factor
+    dy = abs(a_lat - b_lat) * degree_to_meters_factor
+
+    distance = math.sqrt(dx * dx + dy * dy)
+    print(distance, "metres - дистанция до ближайшей организации")
+
+    return distance
 
 
 class BigTask(QWidget):
@@ -54,6 +72,11 @@ class BigTask(QWidget):
         self.label.setText("")
         self.label.resize(110, 30)
         self.label.move(980, 910)
+
+        self.label2 = QLabel(self)
+        self.label2.setText("")
+        self.label2.resize(110, 30)
+        self.label2.move(1250, 100)
 
         self.statham = QLabel(self)
         self.statham.setText("")
@@ -179,6 +202,7 @@ class BigTask(QWidget):
                 else:
                     out += '\n' + part + ' '
                     count = 0
+            self.label2.setText("")
             self.address.setText(out)
 
 
@@ -203,32 +227,135 @@ class BigTask(QWidget):
         self.sorry_text.setText('')
         self.sorry.hide()
 
+    def mousePressEvent(self, event):
+        if 0 <= event.x() <= 1200 and 0 <= event.y() <= 900 and event.button() == Qt.LeftButton:
+            y_in_px = float(self.dop_delta[1]) / 900
+            x_in_px = float(self.dop_delta[0]) / 1200
+            lattitude = self.start_lattitude + float(self.dop_delta[1]) / 2 - y_in_px * event.y()
+            longitude = self.start_longitude - float(self.dop_delta[0]) / 2 + x_in_px * event.x()
+
+            geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
+            geocoder_params = {
+                "apikey": "40d1649f-0493-4b70-98ba-98533de7710b",
+                "geocode": ",".join([str(longitude), str(lattitude)]),
+                "format": "json"}
+            response = requests.get(geocoder_api_server, params=geocoder_params)
+            json_response = response.json()
+            dop = json_response['response']["GeoObjectCollection"]["featureMember"][0]["GeoObject"]
+            full_address = dop["metaDataProperty"]["GeocoderMetaData"]["text"]
+            self.label2.setText("")
+            self.make_image_address(full_address)
+
+        elif 0 <= event.x() <= 1200 and 0 <= event.y() <= 900 and event.button() == Qt.RightButton:
+            y_in_px = float(self.dop_delta[1]) / 900
+            x_in_px = float(self.dop_delta[0]) / 1200
+            lattitude = self.start_lattitude + float(self.dop_delta[1]) / 2 - y_in_px * event.y()
+            longitude = self.start_longitude - float(self.dop_delta[0]) / 2 + x_in_px * event.x()
+
+            search_api_server = "https://search-maps.yandex.ru/v1/"
+            api_key = "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3"
+
+            start_pos = ",".join([str(longitude), str(lattitude)])
+
+            search_params = {
+                "apikey": api_key,
+                "text": "магазин,аптека",
+                "lang": "ru_RU",
+                "ll": start_pos,
+                "type": "biz"
+            }
+
+            response = requests.get(search_api_server, params=search_params)
+            json_response = response.json()
+
+            organization = json_response["features"][0]
+
+            org_name = organization["properties"]["CompanyMetaData"]["name"]
+            print(org_name)
+
+            org_address = organization["properties"]["CompanyMetaData"]["address"]
+
+            point = organization["geometry"]["coordinates"]
+
+            if lonlat_distance(tuple(point), (float(longitude), float(lattitude))) > 50:
+                return
+            self.label2.setText(org_name)
+            self.make_image_address(org_address)
+
+    def make_image_address(self, toponym_to_find):
+        geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
+        geocoder_params = {
+            "apikey": "40d1649f-0493-4b70-98ba-98533de7710b",
+            "geocode": toponym_to_find,
+            "format": "json"}
+        response = requests.get(geocoder_api_server, params=geocoder_params)
+        json_response = response.json()
+        found = json_response['response']['GeoObjectCollection']['metaDataProperty'][
+            'GeocoderResponseMetaData']['found']
+        if not response or found == '0':
+            self.label.setText("Объект не найден")
+        else:
+            self.dop_delta = select_parameters(json_response)
+            dop = json_response['response']["GeoObjectCollection"]["featureMember"][0]["GeoObject"]
+            full_address = dop["metaDataProperty"]["GeocoderMetaData"]["text"].split()
+            if self.postcode.isChecked():
+                try:
+                    full_address.append(str(dop['metaDataProperty'][
+                                                'GeocoderMetaData']['AddressDetails']['Country'][
+                                                'AdministrativeArea'][
+                                                'SubAdministrativeArea']['Locality']['Thoroughfare'][
+                                                'Premise']['PostalCode']['PostalCodeNumber']))
+                except:
+                    self.sorry_text.setText('К сожалению, почтовый индекс не найден')
+                    self.sorry.show()
+            out = ''
+            count = 0
+            for part in full_address:
+                if count + len(part) <= 47:
+                    out += part + ' '
+                    count += len(part)
+                else:
+                    out += '\n' + part + ' '
+                    count = 0
+            self.address.setText(out)
+
+        self.label.setText("")
+        toponym = json_response["response"]["GeoObjectCollection"][
+            "featureMember"][0]["GeoObject"]
+        toponym_coordinates = toponym["Point"]["pos"]
+        toponym_corners = toponym["boundedBy"]["Envelope"]
+        self.start_longitude, self.start_lattitude = [float(i) for i in toponym_coordinates.split(" ")]
+        self.right_border, self.up_border = [float(i) for i in toponym_corners["upperCorner"].split(" ")]
+        self.left_border, self.down_border = [float(i) for i in toponym_corners["lowerCorner"].split(" ")]
+        self.point = True
+        self.point_longitude, self.point_lattitude = self.start_longitude, self.start_lattitude
+        self.make_image()
 
     def keyPressEvent(self, e):
-        if e.key() == Qt.Key_W or e.key() == 1062:
-            self.start_lattitude += self.delta
-            if self.start_lattitude > self.max_lattitude - self.delta / 2:
-                self.start_lattitude = self.max_lattitude - self.delta / 2
-        elif e.key() == Qt.Key_S or e.key() == 1067:
-            self.start_lattitude -= self.delta
-            if self.start_lattitude < self.min_lattitude + self.delta / 2:
-                self.start_lattitude = self.min_lattitude + self.delta / 2
+        if e.key() == Qt.Key_S or e.key() == 1067:
+            self.start_lattitude -= float(self.dop_delta[0])
+            if self.start_lattitude > self.max_lattitude - float(self.dop_delta[0]) / 2:
+                self.start_lattitude = self.max_lattitude - float(self.dop_delta[0]) / 2
+        elif e.key() == Qt.Key_W or e.key() == 1062:
+            self.start_lattitude += float(self.dop_delta[0])
+            if self.start_lattitude < self.min_lattitude + float(self.dop_delta[0]) / 2:
+                self.start_lattitude = self.min_lattitude + float(self.dop_delta[0]) / 2
         elif e.key() == Qt.Key_D or e.key() == 1042:
-            self.start_longitude += self.delta * 2
-            if self.start_longitude > self.max_longitube - self.delta:
-                self.start_longitude = self.max_longitube - self.delta
+            self.start_longitude += float(self.dop_delta[1]) * 2
+            if self.start_longitude > self.max_longitube - float(self.dop_delta[1]):
+                self.start_longitude = self.max_longitube - float(self.dop_delta[1])
         elif e.key() == Qt.Key_A or e.key() == 1060:
-            self.start_longitude -= self.delta * 2
-            if self.start_longitude < self.min_longitube + self.delta:
-                self.start_longitude = self.min_longitube + self.delta
+            self.start_longitude -= float(self.dop_delta[1]) * 2
+            if self.start_longitude < self.min_longitube + float(self.dop_delta[1]):
+                self.start_longitude = self.min_longitube + float(self.dop_delta[1])
         elif e.key() == Qt.Key_PageUp:
             self.delta = min(90, self.delta * 2)
             self.dop_delta = (str(min(90, float(self.dop_delta[0]) * 2)),
-                              str(min(90, float(self.dop_delta[0]) * 2)))
+                              str(min(90, float(self.dop_delta[1]) * 2)))
         elif e.key() == Qt.Key_PageDown:
-            self.delta = max(0.001, self.delta / 2)
-            self.dop_delta = (str(max(0.001, float(self.dop_delta[0]) / 2)),
-                              str(min(0.001, float(self.dop_delta[0]) / 2)))
+            self.delta = max(0.000001, self.delta / 2)
+            self.dop_delta = (str(max(0.000001, float(self.dop_delta[0]) / 2)),
+                              str(max(0.000001, float(self.dop_delta[1]) / 2)))
         elif e.key() == Qt.Key_L or e.key() == 1044:
             layers = ["map", "sat", "sat,skl"]
             self.layer = layers[(layers.index(self.layer) + 1) % 3]
